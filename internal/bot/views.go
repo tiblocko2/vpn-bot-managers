@@ -220,11 +220,11 @@ func (b *Bot) showOpsManage(userID int64) {
 
 	text := "👤 Менеджеры:\n"
 	if len(operators) == 0 {
-		text += "_список пуст_"
+		text += "<i>список пуст</i>"
 	} else {
 		text += fmt.Sprintf("Всего: %d\n\n", len(operators))
 		for _, op := range operators {
-			name := opDisplayName(op.UserID, op.Label)
+			name := escapeHTML(opDisplayName(op.UserID, op.Label))
 			text += fmt.Sprintf("• %s — %s\n", name, formatExpiry(op.ExpiresAt))
 		}
 	}
@@ -232,11 +232,13 @@ func (b *Bot) showOpsManage(userID int64) {
 	var buttons [][]tgbotapi.InlineKeyboardButton
 	for _, op := range operators {
 		name := opDisplayName(op.UserID, op.Label)
+		// Truncate button text to avoid Telegram's inline button limit.
+		btnLabel := fmt.Sprintf("👤 %s (%s)", name, formatExpiry(op.ExpiresAt))
+		if len([]rune(btnLabel)) > 60 {
+			btnLabel = string([]rune(btnLabel)[:60])
+		}
 		buttons = append(buttons, []tgbotapi.InlineKeyboardButton{
-			tgbotapi.NewInlineKeyboardButtonData(
-				fmt.Sprintf("👤 %s (%s)", name, formatExpiry(op.ExpiresAt)),
-				fmt.Sprintf("op_detail:%d", op.UserID),
-			),
+			tgbotapi.NewInlineKeyboardButtonData(btnLabel, fmt.Sprintf("op_detail:%d", op.UserID)),
 		})
 	}
 	buttons = append(buttons,
@@ -249,7 +251,7 @@ func (b *Bot) showOpsManage(userID int64) {
 	)
 
 	msg := tgbotapi.NewMessage(userID, text)
-	msg.ParseMode = "Markdown"
+	msg.ParseMode = "HTML"
 	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(buttons...)
 	b.api.Send(msg)
 }
