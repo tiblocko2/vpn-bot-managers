@@ -65,10 +65,23 @@ func (b *Bot) send(userID int64, text string) {
 func (b *Bot) handleMessage(update *tgbotapi.Update) {
 	userID := update.Message.From.ID
 
-	// Forwarded message as a shortcut for operator registration
-	if update.Message.ForwardFrom != nil && b.userState[userID] == "waiting_op_id" {
+	// Forwarded message as a shortcut for operator registration.
+	// ForwardDate != 0 means it's a forward regardless of sender privacy settings.
+	if update.Message.ForwardDate != 0 && b.userState[userID] == "waiting_op_id" {
 		if userID != config.Cfg.SuperUserID {
 			delete(b.userState, userID)
+			return
+		}
+		if update.Message.ForwardFrom == nil {
+			// User has "Forwarding" privacy enabled — ID is hidden.
+			name := update.Message.ForwardSenderName
+			if name == "" {
+				name = "неизвестный"
+			}
+			b.send(userID, fmt.Sprintf(
+				"❌ Не удалось получить ID пользователя %q: включена приватность пересылок.\n\nПопросите его узнать свой ID через @userinfobot и введите вручную.",
+				name,
+			))
 			return
 		}
 		fwd := update.Message.ForwardFrom
