@@ -140,7 +140,7 @@ func IsOperator(userID int64) bool {
 }
 
 func AddOperator(userID int64) error {
-	_, err := conn.Exec("INSERT OR IGNORE INTO operators VALUES (?)", userID)
+	_, err := conn.Exec("INSERT OR IGNORE INTO operators (user_id) VALUES (?)", userID)
 	return err
 }
 
