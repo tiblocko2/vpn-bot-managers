@@ -101,7 +101,12 @@ func (b *Bot) handleTextState(userID int64, text string) {
 			b.send(userID, fmt.Sprintf("❌ Клиент '%s' уже существует.", name))
 			return
 		}
-		link, err := panel.AddClient(name)
+		if userID != config.Cfg.SuperUserID && db.GetClientCountByOwner(userID) >= 6 {
+			b.send(userID, "❌ Достигнут лимит: вы можете добавить не более 6 клиентов")
+			delete(b.userState, userID)
+			return
+		}
+		link, err := panel.AddClient(name, userID)
 		if err != nil {
 			b.send(userID, "❌ Ошибка добавления: "+err.Error())
 			log.Printf("Ошибка добавления клиента: %v", err)

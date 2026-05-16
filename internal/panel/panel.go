@@ -143,7 +143,8 @@ func deleteClientByEmail(inboundID int64, email string) error {
 }
 
 // AddClient adds the client to all configured inbounds, all sharing one subId and UUID.
-func AddClient(name string) (string, error) {
+// ownerID identifies the manager who created this client (0 = admin/no specific owner).
+func AddClient(name string, ownerID int64) (string, error) {
 	if err := Login(); err != nil {
 		return "", fmt.Errorf("ошибка авторизации: %v", err)
 	}
@@ -168,7 +169,7 @@ func AddClient(name string) (string, error) {
 		}
 	}
 
-	if err := db.SaveClient(name, subscription, uuid, emails); err != nil {
+	if err := db.SaveClient(name, subscription, uuid, emails, ownerID); err != nil {
 		return "", fmt.Errorf("ошибка сохранения в БД: %v", err)
 	}
 
@@ -389,7 +390,7 @@ func ImportClientsFromPanel(inboundIDs []int64) (ImportResult, error) {
 		if comment == "" {
 			comment = subID
 		}
-		if err := db.SaveClient(comment, subID, e.uuid, e.emails); err != nil {
+		if err := db.SaveClient(comment, subID, e.uuid, e.emails, 0); err != nil {
 			log.Printf("⚠️ Ошибка импорта клиента subId=%s: %v", subID, err)
 			continue
 		}

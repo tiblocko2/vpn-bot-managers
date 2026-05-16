@@ -31,10 +31,12 @@ func (b *Bot) showMenu(userID int64) {
 	btns := [][]tgbotapi.InlineKeyboardButton{
 		{tgbotapi.NewInlineKeyboardButtonData("➕ Добавить пользователя", "add_user")},
 		{tgbotapi.NewInlineKeyboardButtonData("👥 Список клиентов", "client_list_new")},
-		{tgbotapi.NewInlineKeyboardButtonData("🔄 Импорт из 3X-UI", "import_panel")},
 	}
 	if userID == config.Cfg.SuperUserID {
 		btns = append(btns,
+			[]tgbotapi.InlineKeyboardButton{
+				tgbotapi.NewInlineKeyboardButtonData("🔄 Импорт из 3X-UI", "import_panel"),
+			},
 			[]tgbotapi.InlineKeyboardButton{
 				tgbotapi.NewInlineKeyboardButtonData("👤 Управление операторами", "ops_manage"),
 			},
@@ -52,6 +54,13 @@ func (b *Bot) showMenu(userID int64) {
 }
 
 func (b *Bot) showAddUser(userID int64) {
+	if userID != config.Cfg.SuperUserID {
+		count := db.GetClientCountByOwner(userID)
+		if count >= 6 {
+			b.send(userID, fmt.Sprintf("❌ Достигнут лимит: вы можете добавить не более 6 клиентов (у вас %d/6)", count))
+			return
+		}
+	}
 	b.userState[userID] = "waiting_name"
 	msg := tgbotapi.NewMessage(userID, "📝 Введите Фамилию и Имя нового пользователя.\n\nПример: `Иванов Иван`")
 	msg.ParseMode = "Markdown"
@@ -64,7 +73,11 @@ func (b *Bot) showAddUser(userID int64) {
 // showClientList renders a paginated list of clients as clickable buttons.
 // editMsgID > 0 means edit an existing message in place (for pagination).
 func (b *Bot) showClientList(userID int64, page int, editMsgID int) {
-	clients, total, err := db.GetClientsPage(page)
+	var ownerID int64
+	if userID != config.Cfg.SuperUserID {
+		ownerID = userID
+	}
+	clients, total, err := db.GetClientsPage(page, ownerID)
 	if err != nil {
 		b.send(userID, "❌ Ошибка получения списка клиентов")
 		return
@@ -75,7 +88,11 @@ func (b *Bot) showClientList(userID int64, page int, editMsgID int) {
 	}
 
 	totalPages := int(math.Ceil(float64(total) / float64(db.ClientsPerPage)))
-	text := fmt.Sprintf("👥 Клиенты (всего: %d, стр. %d/%d):", total, page+1, totalPages)
+	listTitle := "👥 Клиенты"
+	if userID != config.Cfg.SuperUserID {
+		listTitle = "👥 Мои клиенты"
+	}
+	text := fmt.Sprintf("%s (всего: %d, стр. %d/%d):", listTitle, total, page+1, totalPages)
 
 	var buttons [][]tgbotapi.InlineKeyboardButton
 	for _, c := range clients {
@@ -108,6 +125,13 @@ func (b *Bot) showClientList(userID int64, page int, editMsgID int) {
 
 // showClientDetail renders the detail view for a single client.
 func (b *Bot) showClientDetail(userID int64, clientID int64, editMsgID int) {
+	if userID != config.Cfg.SuperUserID {
+		owner, err := db.ClientOwner(clientID)
+		if err != nil || owner != userID {
+			b.send(userID, "❌ Клиент не найден")
+			return
+		}
+	}
 	details, err := db.GetClientDetails(clientID)
 	if err != nil {
 		b.send(userID, "❌ Клиент не найден")
@@ -163,6 +187,13 @@ func (b *Bot) showClientDetail(userID int64, clientID int64, editMsgID int) {
 
 // showDeleteConfirm asks for confirmation before deleting a client.
 func (b *Bot) showDeleteConfirm(userID int64, clientID int64, editMsgID int) {
+	if userID != config.Cfg.SuperUserID {
+		owner, err := db.ClientOwner(clientID)
+		if err != nil || owner != userID {
+			b.send(userID, "❌ Клиент не найден")
+			return
+		}
+	}
 	details, err := db.GetClientDetails(clientID)
 	name := "клиента"
 	if err == nil {

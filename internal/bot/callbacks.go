@@ -55,6 +55,13 @@ func (b *Bot) handleCallback(update *tgbotapi.Update) {
 		}
 		clientID, _ := strconv.ParseInt(parts[0], 10, 64)
 		inboundID, _ := strconv.ParseInt(parts[1], 10, 64)
+		if userID != config.Cfg.SuperUserID {
+			owner, err := db.ClientOwner(clientID)
+			if err != nil || owner != userID {
+				b.send(userID, "❌ Нет доступа")
+				return
+			}
+		}
 		b.send(userID, "⏳ Добавляю в inbound...")
 		if err := panel.AddExistingClientToInbound(clientID, inboundID); err != nil {
 			b.send(userID, "❌ Ошибка: "+err.Error())
@@ -72,6 +79,13 @@ func (b *Bot) handleCallback(update *tgbotapi.Update) {
 	case strings.HasPrefix(data, "del_confirm_yes:"):
 		ack("")
 		id, _ := strconv.ParseInt(strings.TrimPrefix(data, "del_confirm_yes:"), 10, 64)
+		if userID != config.Cfg.SuperUserID {
+			owner, err := db.ClientOwner(id)
+			if err != nil || owner != userID {
+				b.send(userID, "❌ Нет доступа")
+				return
+			}
+		}
 		name, err := panel.DeleteClient(id)
 		if err != nil {
 			b.send(userID, "❌ Ошибка: "+err.Error())
@@ -85,17 +99,29 @@ func (b *Bot) handleCallback(update *tgbotapi.Update) {
 				))
 		}
 
-	// --- operators ---
+	// --- operators (superuser only) ---
 
 	case data == "ops_manage":
+		if userID != config.Cfg.SuperUserID {
+			ack("❌ Нет доступа")
+			return
+		}
 		ack("")
 		b.showOpsManage(userID)
 
 	case data == "ops_add":
+		if userID != config.Cfg.SuperUserID {
+			ack("❌ Нет доступа")
+			return
+		}
 		ack("")
 		b.showAddOp(userID)
 
 	case strings.HasPrefix(data, "ops_remove:"):
+		if userID != config.Cfg.SuperUserID {
+			ack("❌ Нет доступа")
+			return
+		}
 		ack("")
 		opID, _ := strconv.ParseInt(strings.TrimPrefix(data, "ops_remove:"), 10, 64)
 		if err := db.RemoveOperator(opID); err != nil {
@@ -104,14 +130,22 @@ func (b *Bot) handleCallback(update *tgbotapi.Update) {
 			b.send(userID, fmt.Sprintf("✅ Оператор %d удалён", opID))
 		}
 
-	// --- import flow ---
+	// --- import flow (superuser only) ---
 
 	case data == "import_panel":
+		if userID != config.Cfg.SuperUserID {
+			ack("❌ Нет доступа")
+			return
+		}
 		ack("")
 		delete(b.importSelection, userID)
 		b.showImportSelection(userID)
 
 	case strings.HasPrefix(data, "import_toggle:"):
+		if userID != config.Cfg.SuperUserID {
+			ack("❌ Нет доступа")
+			return
+		}
 		ack("")
 		id, _ := strconv.ParseInt(strings.TrimPrefix(data, "import_toggle:"), 10, 64)
 		if b.importSelection[userID] == nil {
@@ -121,6 +155,10 @@ func (b *Bot) handleCallback(update *tgbotapi.Update) {
 		b.showImportSelection(userID)
 
 	case data == "import_run":
+		if userID != config.Cfg.SuperUserID {
+			ack("❌ Нет доступа")
+			return
+		}
 		ack("")
 		sel := b.importSelection[userID]
 		var ids []int64

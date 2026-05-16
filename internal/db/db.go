@@ -77,6 +77,7 @@ func Init() {
 		log.Printf("ℹ️ Колонка subscription уже существует")
 	}
 	conn.Exec(`ALTER TABLE clients ADD COLUMN uuid TEXT NOT NULL DEFAULT ''`)
+	conn.Exec(`ALTER TABLE clients ADD COLUMN owner_id INTEGER NOT NULL DEFAULT 0`)
 }
 
 // MigrateEmailsFromOldSchema copies email_vless/email_vmess data into
@@ -168,11 +169,26 @@ func ClientExistsBySubscription(subscription string) bool {
 	return err == nil && count > 0
 }
 
+// GetClientCountByOwner returns how many clients a manager has created.
+func GetClientCountByOwner(ownerID int64) int {
+	var count int
+	conn.QueryRow("SELECT COUNT(*) FROM clients WHERE owner_id = ?", ownerID).Scan(&count)
+	return count
+}
+
+// ClientOwner returns the owner_id for a client record.
+func ClientOwner(clientID int64) (int64, error) {
+	var ownerID int64
+	err := conn.QueryRow("SELECT owner_id FROM clients WHERE id = ?", clientID).Scan(&ownerID)
+	return ownerID, err
+}
+
 // SaveClient creates a client record and stores one email per inbound.
-func SaveClient(comment, subscription, uuid string, emails map[int64]string) error {
+// ownerID=0 means the client was imported or created by the superuser with no manager restriction.
+func SaveClient(comment, subscription, uuid string, emails map[int64]string, ownerID int64) error {
 	result, err := conn.Exec(
-		"INSERT INTO clients (comment, subscription, uuid, email_vless, email_vmess) VALUES (?, ?, ?, '', '')",
-		comment, subscription, uuid,
+		"INSERT INTO clients (comment, subscription, uuid, email_vless, email_vmess, owner_id) VALUES (?, ?, ?, '', '', ?)",
+		comment, subscription, uuid, ownerID,
 	)
 	if err != nil {
 		return err
@@ -253,14 +269,38 @@ func SetClientUUID(clientID int64, uuid string) {
 }
 
 // GetClientsPage returns one page of clients and total count.
-func GetClientsPage(page int) (clients []ClientRecord, total int, err error) {
-	err = conn.QueryRow("SELECT COUNT(*) FROM clients").Scan(&total)
+// ownerID=0 means superuser — returns all clients. Otherwise filters by owner.
+func GetClientsPage(page int, ownerID int64) (clients []ClientRecord, total int, err error) {
+	if ownerID == 0 {
+		err = conn.QueryRow("SELECT COUNT(*) FROM clients").Scan(&total)
+		if err != nil {
+			return
+		}
+		rows, qerr := conn.Query(
+			"SELECT id, comment FROM clients ORDER BY created_at DESC LIMIT ? OFFSET ?",
+			ClientsPerPage, page*ClientsPerPage,
+		)
+		if qerr != nil {
+			err = qerr
+			return
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var c ClientRecord
+			if err = rows.Scan(&c.ID, &c.Comment); err != nil {
+				return
+			}
+			clients = append(clients, c)
+		}
+		return
+	}
+	err = conn.QueryRow("SELECT COUNT(*) FROM clients WHERE owner_id = ?", ownerID).Scan(&total)
 	if err != nil {
 		return
 	}
 	rows, err := conn.Query(
-		"SELECT id, comment FROM clients ORDER BY created_at DESC LIMIT ? OFFSET ?",
-		ClientsPerPage, page*ClientsPerPage,
+		"SELECT id, comment FROM clients WHERE owner_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+		ownerID, ClientsPerPage, page*ClientsPerPage,
 	)
 	if err != nil {
 		return
