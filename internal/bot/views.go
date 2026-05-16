@@ -224,15 +224,17 @@ func (b *Bot) showOpsManage(userID int64) {
 	} else {
 		text += fmt.Sprintf("Всего: %d\n\n", len(operators))
 		for _, op := range operators {
-			text += fmt.Sprintf("• %d — %s\n", op.UserID, formatExpiry(op.ExpiresAt))
+			name := opDisplayName(op.UserID, op.Label)
+			text += fmt.Sprintf("• %s — %s\n", name, formatExpiry(op.ExpiresAt))
 		}
 	}
 
 	var buttons [][]tgbotapi.InlineKeyboardButton
 	for _, op := range operators {
+		name := opDisplayName(op.UserID, op.Label)
 		buttons = append(buttons, []tgbotapi.InlineKeyboardButton{
 			tgbotapi.NewInlineKeyboardButtonData(
-				fmt.Sprintf("👤 %d (%s)", op.UserID, formatExpiry(op.ExpiresAt)),
+				fmt.Sprintf("👤 %s (%s)", name, formatExpiry(op.ExpiresAt)),
 				fmt.Sprintf("op_detail:%d", op.UserID),
 			),
 		})
@@ -256,6 +258,7 @@ func (b *Bot) showOpDetail(userID int64, opID int64, editMsgID int) {
 	expiry := db.GetOperatorExpiry(opID)
 	clientCount := db.GetClientCountByOwner(opID)
 	maxClients := db.GetOperatorMaxClients(opID)
+	label := db.GetOperatorLabel(opID)
 
 	var expiryLine string
 	if expiry == 0 {
@@ -270,9 +273,14 @@ func (b *Bot) showOpDetail(userID int64, opID int64, editMsgID int) {
 		}
 	}
 
+	nameDisplay := opDisplayName(opID, label)
+	var labelLine string
+	if label != "" {
+		labelLine = fmt.Sprintf("\n🏷 Подпись: %s", escapeHTML(label))
+	}
 	text := fmt.Sprintf(
-		"👤 Менеджер <b>%d</b>\n📅 Подписка: %s\n👥 Клиентов: %d/%d",
-		opID, expiryLine, clientCount, maxClients,
+		"👤 Менеджер <b>%s</b>%s\n📅 Подписка: %s\n👥 Клиентов: %d/%d",
+		escapeHTML(nameDisplay), labelLine, expiryLine, clientCount, maxClients,
 	)
 
 	buttons := tgbotapi.NewInlineKeyboardMarkup(
@@ -289,6 +297,7 @@ func (b *Bot) showOpDetail(userID int64, opID int64, editMsgID int) {
 				fmt.Sprintf("✏️ Лимит клиентов: %d", maxClients),
 				fmt.Sprintf("op_set_limit:%d", opID),
 			),
+			tgbotapi.NewInlineKeyboardButtonData("🏷 Подпись", fmt.Sprintf("op_set_label:%d", opID)),
 		},
 		[]tgbotapi.InlineKeyboardButton{
 			tgbotapi.NewInlineKeyboardButtonData("🗑 Удалить менеджера", fmt.Sprintf("ops_remove:%d", opID)),
@@ -313,6 +322,14 @@ func (b *Bot) showDeleteManagerConfirm(userID int64, opID int64, editMsgID int) 
 		},
 	)
 	b.sendOrEdit(userID, editMsgID, text, "HTML", buttons)
+}
+
+// opDisplayName returns "Label (ID)" if label is set, otherwise just "ID".
+func opDisplayName(userID int64, label string) string {
+	if label == "" {
+		return fmt.Sprintf("%d", userID)
+	}
+	return fmt.Sprintf("%s (%d)", label, userID)
 }
 
 // formatExpiry returns a short expiry label for the operators list.

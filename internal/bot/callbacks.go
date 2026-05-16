@@ -224,6 +224,26 @@ func (b *Bot) handleCallback(update *tgbotapi.Update) {
 		)
 		b.api.Send(msg2)
 
+	case strings.HasPrefix(data, "op_set_label:"):
+		if userID != config.Cfg.SuperUserID {
+			ack("❌ Нет доступа")
+			return
+		}
+		ack("")
+		opID, _ := strconv.ParseInt(strings.TrimPrefix(data, "op_set_label:"), 10, 64)
+		b.userState[userID] = fmt.Sprintf("waiting_label:%d", opID)
+		current := db.GetOperatorLabel(opID)
+		prompt := fmt.Sprintf("🏷 Введите подпись для менеджера %d\n(имя, никнейм — любой текст):", opID)
+		if current != "" {
+			prompt = fmt.Sprintf("🏷 Текущая подпись: <b>%s</b>\n\nВведите новую подпись для менеджера %d:", escapeHTML(current), opID)
+		}
+		msg3 := tgbotapi.NewMessage(userID, prompt)
+		msg3.ParseMode = "HTML"
+		msg3.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+			[]tgbotapi.InlineKeyboardButton{tgbotapi.NewInlineKeyboardButtonData("❌ Отмена", "cancel")},
+		)
+		b.api.Send(msg3)
+
 	// --- import flow (superuser only) ---
 
 	case data == "import_panel":

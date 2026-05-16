@@ -23,6 +23,7 @@ type OperatorRecord struct {
 	UserID     int64
 	ExpiresAt  int64 // Unix milliseconds; 0 = no expiry
 	MaxClients int
+	Label      string
 }
 
 type ClientDetails struct {
@@ -48,13 +49,15 @@ func Init() {
 	_, err = conn.Exec(`CREATE TABLE IF NOT EXISTS operators (
 		user_id INTEGER PRIMARY KEY,
 		expires_at INTEGER NOT NULL DEFAULT 0,
-		max_clients INTEGER NOT NULL DEFAULT 6
+		max_clients INTEGER NOT NULL DEFAULT 6,
+		label TEXT NOT NULL DEFAULT ''
 	)`)
 	if err != nil {
 		panic(err)
 	}
 	conn.Exec(`ALTER TABLE operators ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0`)
 	conn.Exec(`ALTER TABLE operators ADD COLUMN max_clients INTEGER NOT NULL DEFAULT 6`)
+	conn.Exec(`ALTER TABLE operators ADD COLUMN label TEXT NOT NULL DEFAULT ''`)
 
 	// Legacy columns email_vless/email_vmess kept for backward compat (always '').
 	_, err = conn.Exec(`CREATE TABLE IF NOT EXISTS clients (
@@ -142,9 +145,21 @@ func IsOperator(userID int64) bool {
 	return conn.QueryRow("SELECT user_id FROM operators WHERE user_id = ?", userID).Scan(&id) == nil
 }
 
-func AddOperator(userID int64) error {
-	_, err := conn.Exec("INSERT OR IGNORE INTO operators (user_id) VALUES (?)", userID)
+func AddOperator(userID int64, label string) error {
+	_, err := conn.Exec("INSERT OR IGNORE INTO operators (user_id, label) VALUES (?, ?)", userID, label)
 	return err
+}
+
+func SetOperatorLabel(userID int64, label string) error {
+	_, err := conn.Exec("UPDATE operators SET label = ? WHERE user_id = ?", label, userID)
+	return err
+}
+
+// GetOperatorLabel returns the stored label for a manager.
+func GetOperatorLabel(userID int64) string {
+	var label string
+	conn.QueryRow("SELECT label FROM operators WHERE user_id = ?", userID).Scan(&label)
+	return label
 }
 
 func RemoveOperator(userID int64) error {
@@ -170,7 +185,7 @@ func GetAllOperators() ([]int64, error) {
 }
 
 func GetAllOperatorsWithExpiry() ([]OperatorRecord, error) {
-	rows, err := conn.Query("SELECT user_id, expires_at, max_clients FROM operators")
+	rows, err := conn.Query("SELECT user_id, expires_at, max_clients, label FROM operators")
 	if err != nil {
 		return nil, err
 	}
@@ -178,7 +193,7 @@ func GetAllOperatorsWithExpiry() ([]OperatorRecord, error) {
 	var ops []OperatorRecord
 	for rows.Next() {
 		var r OperatorRecord
-		if err := rows.Scan(&r.UserID, &r.ExpiresAt, &r.MaxClients); err != nil {
+		if err := rows.Scan(&r.UserID, &r.ExpiresAt, &r.MaxClients, &r.Label); err != nil {
 			return nil, err
 		}
 		ops = append(ops, r)

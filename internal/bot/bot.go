@@ -67,11 +67,16 @@ func (b *Bot) handleMessage(update *tgbotapi.Update) {
 
 	// Forwarded message as a shortcut for operator registration
 	if update.Message.ForwardFrom != nil && b.userState[userID] == "waiting_op_id" {
+		if userID != config.Cfg.SuperUserID {
+			delete(b.userState, userID)
+			return
+		}
 		fwd := update.Message.ForwardFrom
-		if err := db.AddOperator(fwd.ID); err != nil {
+		label := formatUsername(fwd.FirstName, fwd.UserName)
+		if err := db.AddOperator(fwd.ID, label); err != nil {
 			b.send(userID, "❌ Ошибка добавления оператора")
 		} else {
-			b.send(userID, fmt.Sprintf("✅ Оператор %s (ID: %d) добавлен", formatUsername(fwd.FirstName, fwd.UserName), fwd.ID))
+			b.send(userID, fmt.Sprintf("✅ Менеджер %s (ID: %d) добавлен", label, fwd.ID))
 		}
 		delete(b.userState, userID)
 		return
@@ -129,10 +134,10 @@ func (b *Bot) handleTextState(userID int64, text string) {
 			b.send(userID, "❌ Неверный формат ID. Введите число.")
 			return
 		}
-		if err := db.AddOperator(opID); err != nil {
+		if err := db.AddOperator(opID, ""); err != nil {
 			b.send(userID, "❌ Ошибка добавления оператора")
 		} else {
-			b.send(userID, fmt.Sprintf("✅ Оператор с ID %d добавлен", opID))
+			b.send(userID, fmt.Sprintf("✅ Менеджер с ID %d добавлен", opID))
 		}
 		delete(b.userState, userID)
 
@@ -155,6 +160,27 @@ func (b *Bot) handleTextState(userID int64, text string) {
 		delete(b.userState, userID)
 
 	default:
+		if strings.HasPrefix(b.userState[userID], "waiting_label:") {
+			if userID != config.Cfg.SuperUserID {
+				delete(b.userState, userID)
+				return
+			}
+			opIDStr := strings.TrimPrefix(b.userState[userID], "waiting_label:")
+			opID, err := strconv.ParseInt(opIDStr, 10, 64)
+			if err != nil {
+				b.send(userID, "❌ Внутренняя ошибка")
+				delete(b.userState, userID)
+				return
+			}
+			label := strings.TrimSpace(text)
+			if err := db.SetOperatorLabel(opID, label); err != nil {
+				b.send(userID, "❌ Ошибка сохранения: "+err.Error())
+			} else {
+				b.send(userID, fmt.Sprintf("✅ Подпись для менеджера %d установлена: %s", opID, label))
+			}
+			delete(b.userState, userID)
+			return
+		}
 		if strings.HasPrefix(b.userState[userID], "waiting_limit:") {
 			if userID != config.Cfg.SuperUserID {
 				delete(b.userState, userID)
