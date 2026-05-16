@@ -125,12 +125,27 @@ func (b *Bot) handleCallback(update *tgbotapi.Update) {
 		}
 		ack("")
 		opID, _ := strconv.ParseInt(strings.TrimPrefix(data, "ops_remove:"), 10, 64)
-		if err := db.RemoveOperator(opID); err != nil {
-			b.send(userID, "❌ Ошибка удаления менеджера")
-		} else {
-			b.send(userID, fmt.Sprintf("✅ Менеджер %d удалён", opID))
-			b.showOpsManage(userID)
+		b.showDeleteManagerConfirm(userID, opID, msgID)
+
+	case strings.HasPrefix(data, "ops_remove_yes:"):
+		if userID != config.Cfg.SuperUserID {
+			ack("❌ Нет доступа")
+			return
 		}
+		ack("")
+		opID, _ := strconv.ParseInt(strings.TrimPrefix(data, "ops_remove_yes:"), 10, 64)
+		b.send(userID, "⏳ Удаляю клиентов из 3X-UI...")
+		count, err := panel.DeleteManagerClients(opID)
+		if err != nil {
+			b.send(userID, fmt.Sprintf("⚠️ Ошибка удаления клиентов: %v", err))
+			return
+		}
+		if err := db.RemoveOperator(opID); err != nil {
+			b.send(userID, "❌ Ошибка удаления менеджера из БД")
+			return
+		}
+		b.send(userID, fmt.Sprintf("✅ Менеджер %d удалён, клиентов удалено из 3X-UI: %d", opID, count))
+		b.showOpsManage(userID)
 
 	case strings.HasPrefix(data, "op_detail:"):
 		if userID != config.Cfg.SuperUserID {
@@ -191,6 +206,23 @@ func (b *Bot) handleCallback(update *tgbotapi.Update) {
 			[]tgbotapi.InlineKeyboardButton{tgbotapi.NewInlineKeyboardButtonData("❌ Отмена", "cancel")},
 		)
 		b.api.Send(msg)
+
+	case strings.HasPrefix(data, "op_set_limit:"):
+		if userID != config.Cfg.SuperUserID {
+			ack("❌ Нет доступа")
+			return
+		}
+		ack("")
+		opID, _ := strconv.ParseInt(strings.TrimPrefix(data, "op_set_limit:"), 10, 64)
+		b.userState[userID] = fmt.Sprintf("waiting_limit:%d", opID)
+		msg2 := tgbotapi.NewMessage(userID, fmt.Sprintf(
+			"✏️ Введите новый лимит клиентов для менеджера %d (число от 1 до 100):",
+			opID,
+		))
+		msg2.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+			[]tgbotapi.InlineKeyboardButton{tgbotapi.NewInlineKeyboardButtonData("❌ Отмена", "cancel")},
+		)
+		b.api.Send(msg2)
 
 	// --- import flow (superuser only) ---
 

@@ -102,10 +102,13 @@ func (b *Bot) handleTextState(userID int64, text string) {
 			b.send(userID, fmt.Sprintf("❌ Клиент '%s' уже существует.", name))
 			return
 		}
-		if userID != config.Cfg.SuperUserID && db.GetClientCountByOwner(userID) >= 6 {
-			b.send(userID, "❌ Достигнут лимит: вы можете добавить не более 6 клиентов")
-			delete(b.userState, userID)
-			return
+		if userID != config.Cfg.SuperUserID {
+			limit := db.GetOperatorMaxClients(userID)
+			if db.GetClientCountByOwner(userID) >= limit {
+				b.send(userID, fmt.Sprintf("❌ Достигнут лимит: вы можете добавить не более %d клиентов", limit))
+				delete(b.userState, userID)
+				return
+			}
 		}
 		link, err := panel.AddClient(name, userID)
 		if err != nil {
@@ -152,6 +155,31 @@ func (b *Bot) handleTextState(userID int64, text string) {
 		delete(b.userState, userID)
 
 	default:
+		if strings.HasPrefix(b.userState[userID], "waiting_limit:") {
+			if userID != config.Cfg.SuperUserID {
+				delete(b.userState, userID)
+				return
+			}
+			opIDStr := strings.TrimPrefix(b.userState[userID], "waiting_limit:")
+			opID, err := strconv.ParseInt(opIDStr, 10, 64)
+			if err != nil {
+				b.send(userID, "❌ Внутренняя ошибка")
+				delete(b.userState, userID)
+				return
+			}
+			var limit int
+			if _, err := fmt.Sscan(strings.TrimSpace(text), &limit); err != nil || limit < 1 || limit > 100 {
+				b.send(userID, "❌ Введите число от 1 до 100")
+				return
+			}
+			if err := db.SetOperatorMaxClients(opID, limit); err != nil {
+				b.send(userID, "❌ Ошибка сохранения: "+err.Error())
+			} else {
+				b.send(userID, fmt.Sprintf("✅ Лимит для менеджера %d установлен: %d клиентов", opID, limit))
+			}
+			delete(b.userState, userID)
+			return
+		}
 		if strings.HasPrefix(b.userState[userID], "waiting_expiry:") {
 			if userID != config.Cfg.SuperUserID {
 				delete(b.userState, userID)

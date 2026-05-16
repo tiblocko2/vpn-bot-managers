@@ -20,8 +20,9 @@ type ClientRecord struct {
 }
 
 type OperatorRecord struct {
-	UserID    int64
-	ExpiresAt int64 // Unix milliseconds; 0 = no expiry
+	UserID     int64
+	ExpiresAt  int64 // Unix milliseconds; 0 = no expiry
+	MaxClients int
 }
 
 type ClientDetails struct {
@@ -46,12 +47,14 @@ func Init() {
 
 	_, err = conn.Exec(`CREATE TABLE IF NOT EXISTS operators (
 		user_id INTEGER PRIMARY KEY,
-		expires_at INTEGER NOT NULL DEFAULT 0
+		expires_at INTEGER NOT NULL DEFAULT 0,
+		max_clients INTEGER NOT NULL DEFAULT 6
 	)`)
 	if err != nil {
 		panic(err)
 	}
 	conn.Exec(`ALTER TABLE operators ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0`)
+	conn.Exec(`ALTER TABLE operators ADD COLUMN max_clients INTEGER NOT NULL DEFAULT 6`)
 
 	// Legacy columns email_vless/email_vmess kept for backward compat (always '').
 	_, err = conn.Exec(`CREATE TABLE IF NOT EXISTS clients (
@@ -167,7 +170,7 @@ func GetAllOperators() ([]int64, error) {
 }
 
 func GetAllOperatorsWithExpiry() ([]OperatorRecord, error) {
-	rows, err := conn.Query("SELECT user_id, expires_at FROM operators")
+	rows, err := conn.Query("SELECT user_id, expires_at, max_clients FROM operators")
 	if err != nil {
 		return nil, err
 	}
@@ -175,12 +178,25 @@ func GetAllOperatorsWithExpiry() ([]OperatorRecord, error) {
 	var ops []OperatorRecord
 	for rows.Next() {
 		var r OperatorRecord
-		if err := rows.Scan(&r.UserID, &r.ExpiresAt); err != nil {
+		if err := rows.Scan(&r.UserID, &r.ExpiresAt, &r.MaxClients); err != nil {
 			return nil, err
 		}
 		ops = append(ops, r)
 	}
 	return ops, nil
+}
+
+func GetOperatorMaxClients(userID int64) int {
+	var maxClients int
+	if err := conn.QueryRow("SELECT max_clients FROM operators WHERE user_id = ?", userID).Scan(&maxClients); err != nil {
+		return 6
+	}
+	return maxClients
+}
+
+func SetOperatorMaxClients(userID int64, maxClients int) error {
+	_, err := conn.Exec("UPDATE operators SET max_clients = ? WHERE user_id = ?", maxClients, userID)
+	return err
 }
 
 func GetOperatorExpiry(userID int64) int64 {

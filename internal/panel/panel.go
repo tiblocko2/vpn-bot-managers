@@ -429,6 +429,37 @@ func ImportClientsFromPanel(inboundIDs []int64) (ImportResult, error) {
 	return res, nil
 }
 
+// DeleteManagerClients removes all clients of a manager from 3X-UI and from the database.
+// Returns the number of clients deleted.
+func DeleteManagerClients(managerID int64) (int, error) {
+	clients, err := db.GetClientsByOwner(managerID)
+	if err != nil {
+		return 0, err
+	}
+	if len(clients) == 0 {
+		return 0, nil
+	}
+	if err := Login(); err != nil {
+		return 0, fmt.Errorf("ошибка авторизации: %v", err)
+	}
+	count := 0
+	for _, c := range clients {
+		first := true
+		for ibID, email := range c.Emails {
+			if !first {
+				time.Sleep(200 * time.Millisecond)
+			}
+			if err := deleteClientByEmail(ibID, email); err != nil {
+				log.Printf("⚠️ Ошибка удаления клиента '%s' из inbound %d: %v", c.Comment, ibID, err)
+			}
+			first = false
+		}
+		db.DeleteClient(c.ID)
+		count++
+	}
+	return count, nil
+}
+
 // UpdateManagerClientsExpiry updates expiryTime in 3X-UI for all clients of a manager.
 // Returns the count of clients processed.
 func UpdateManagerClientsExpiry(managerID int64, expiryMs int64) (int, error) {

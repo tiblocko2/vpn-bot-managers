@@ -56,9 +56,10 @@ func (b *Bot) showMenu(userID int64) {
 
 func (b *Bot) showAddUser(userID int64) {
 	if userID != config.Cfg.SuperUserID {
+		limit := db.GetOperatorMaxClients(userID)
 		count := db.GetClientCountByOwner(userID)
-		if count >= 6 {
-			b.send(userID, fmt.Sprintf("❌ Достигнут лимит: вы можете добавить не более 6 клиентов (у вас %d/6)", count))
+		if count >= limit {
+			b.send(userID, fmt.Sprintf("❌ Достигнут лимит: вы можете добавить не более %d клиентов (у вас %d/%d)", limit, count, limit))
 			return
 		}
 	}
@@ -254,6 +255,7 @@ func (b *Bot) showOpsManage(userID int64) {
 func (b *Bot) showOpDetail(userID int64, opID int64, editMsgID int) {
 	expiry := db.GetOperatorExpiry(opID)
 	clientCount := db.GetClientCountByOwner(opID)
+	maxClients := db.GetOperatorMaxClients(opID)
 
 	var expiryLine string
 	if expiry == 0 {
@@ -269,8 +271,8 @@ func (b *Bot) showOpDetail(userID int64, opID int64, editMsgID int) {
 	}
 
 	text := fmt.Sprintf(
-		"👤 Менеджер <b>%d</b>\n📅 Подписка: %s\n👥 Клиентов: %d/6",
-		opID, expiryLine, clientCount,
+		"👤 Менеджер <b>%d</b>\n📅 Подписка: %s\n👥 Клиентов: %d/%d",
+		opID, expiryLine, clientCount, maxClients,
 	)
 
 	buttons := tgbotapi.NewInlineKeyboardMarkup(
@@ -283,10 +285,31 @@ func (b *Bot) showOpDetail(userID int64, opID int64, editMsgID int) {
 			tgbotapi.NewInlineKeyboardButtonData("📅 Установить дату", fmt.Sprintf("op_set_expiry:%d", opID)),
 		},
 		[]tgbotapi.InlineKeyboardButton{
-			tgbotapi.NewInlineKeyboardButtonData("❌ Удалить менеджера", fmt.Sprintf("ops_remove:%d", opID)),
+			tgbotapi.NewInlineKeyboardButtonData(
+				fmt.Sprintf("✏️ Лимит клиентов: %d", maxClients),
+				fmt.Sprintf("op_set_limit:%d", opID),
+			),
+		},
+		[]tgbotapi.InlineKeyboardButton{
+			tgbotapi.NewInlineKeyboardButtonData("🗑 Удалить менеджера", fmt.Sprintf("ops_remove:%d", opID)),
 		},
 		[]tgbotapi.InlineKeyboardButton{
 			tgbotapi.NewInlineKeyboardButtonData("⬅️ К списку", "ops_manage"),
+		},
+	)
+	b.sendOrEdit(userID, editMsgID, text, "HTML", buttons)
+}
+
+func (b *Bot) showDeleteManagerConfirm(userID int64, opID int64, editMsgID int) {
+	clientCount := db.GetClientCountByOwner(opID)
+	text := fmt.Sprintf(
+		"⚠️ Удалить менеджера <b>%d</b>?\n\n👥 Клиентов будет удалено из 3X-UI: <b>%d</b>\nЭто действие нельзя отменить.",
+		opID, clientCount,
+	)
+	buttons := tgbotapi.NewInlineKeyboardMarkup(
+		[]tgbotapi.InlineKeyboardButton{
+			tgbotapi.NewInlineKeyboardButtonData("✅ Да, удалить всё", fmt.Sprintf("ops_remove_yes:%d", opID)),
+			tgbotapi.NewInlineKeyboardButtonData("❌ Отмена", fmt.Sprintf("op_detail:%d", opID)),
 		},
 	)
 	b.sendOrEdit(userID, editMsgID, text, "HTML", buttons)
