@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
@@ -125,10 +126,71 @@ func (b *Bot) handleCallback(update *tgbotapi.Update) {
 		ack("")
 		opID, _ := strconv.ParseInt(strings.TrimPrefix(data, "ops_remove:"), 10, 64)
 		if err := db.RemoveOperator(opID); err != nil {
-			b.send(userID, "❌ Ошибка удаления оператора")
+			b.send(userID, "❌ Ошибка удаления менеджера")
 		} else {
-			b.send(userID, fmt.Sprintf("✅ Оператор %d удалён", opID))
+			b.send(userID, fmt.Sprintf("✅ Менеджер %d удалён", opID))
+			b.showOpsManage(userID)
 		}
+
+	case strings.HasPrefix(data, "op_detail:"):
+		if userID != config.Cfg.SuperUserID {
+			ack("❌ Нет доступа")
+			return
+		}
+		ack("")
+		opID, _ := strconv.ParseInt(strings.TrimPrefix(data, "op_detail:"), 10, 64)
+		b.showOpDetail(userID, opID, msgID)
+
+	case strings.HasPrefix(data, "op_extend:"):
+		if userID != config.Cfg.SuperUserID {
+			ack("❌ Нет доступа")
+			return
+		}
+		ack("")
+		parts := strings.SplitN(strings.TrimPrefix(data, "op_extend:"), ":", 2)
+		if len(parts) != 2 {
+			return
+		}
+		opID, _ := strconv.ParseInt(parts[0], 10, 64)
+		months, _ := strconv.Atoi(parts[1])
+		current := db.GetOperatorExpiry(opID)
+		var base time.Time
+		if current == 0 || time.UnixMilli(current).Before(time.Now()) {
+			base = time.Now()
+		} else {
+			base = time.UnixMilli(current)
+		}
+		newExpiry := base.AddDate(0, months, 0).UnixMilli()
+		if err := db.SetOperatorExpiry(opID, newExpiry); err != nil {
+			b.send(userID, "❌ Ошибка сохранения: "+err.Error())
+			return
+		}
+		b.send(userID, "⏳ Обновляю клиентов в панели...")
+		count, err := panel.UpdateManagerClientsExpiry(opID, newExpiry)
+		if err != nil {
+			b.send(userID, fmt.Sprintf("⚠️ Срок обновлён, но ошибка в панели: %v", err))
+		} else {
+			b.send(userID, fmt.Sprintf("✅ Подписка продлена на %d мес. до %s\n👥 Обновлено клиентов: %d",
+				months, time.UnixMilli(newExpiry).Format("02.01.2006"), count))
+		}
+		b.showOpDetail(userID, opID, 0)
+
+	case strings.HasPrefix(data, "op_set_expiry:"):
+		if userID != config.Cfg.SuperUserID {
+			ack("❌ Нет доступа")
+			return
+		}
+		ack("")
+		opID, _ := strconv.ParseInt(strings.TrimPrefix(data, "op_set_expiry:"), 10, 64)
+		b.userState[userID] = fmt.Sprintf("waiting_expiry:%d", opID)
+		msg := tgbotapi.NewMessage(userID, fmt.Sprintf(
+			"📅 Введите дату окончания подписки для менеджера %d\nФормат: ДД.ММ.ГГГГ (например: 01.02.2027)",
+			opID,
+		))
+		msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+			[]tgbotapi.InlineKeyboardButton{tgbotapi.NewInlineKeyboardButtonData("❌ Отмена", "cancel")},
+		)
+		b.api.Send(msg)
 
 	// --- import flow (superuser only) ---
 

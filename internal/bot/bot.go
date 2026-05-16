@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -149,6 +150,41 @@ func (b *Bot) handleTextState(userID int64, text string) {
 			b.send(userID, fmt.Sprintf("✅ Домен подписок изменён на:\n%s", newDomain))
 		}
 		delete(b.userState, userID)
+
+	default:
+		if strings.HasPrefix(b.userState[userID], "waiting_expiry:") {
+			if userID != config.Cfg.SuperUserID {
+				delete(b.userState, userID)
+				return
+			}
+			opIDStr := strings.TrimPrefix(b.userState[userID], "waiting_expiry:")
+			opID, err := strconv.ParseInt(opIDStr, 10, 64)
+			if err != nil {
+				b.send(userID, "❌ Внутренняя ошибка")
+				delete(b.userState, userID)
+				return
+			}
+			t, err := time.ParseInLocation("02.01.2006", strings.TrimSpace(text), time.Local)
+			if err != nil {
+				b.send(userID, "❌ Неверный формат даты. Введите в формате ДД.ММ.ГГГГ (например: 01.02.2026)")
+				return
+			}
+			expiryMs := t.UnixMilli()
+			if err := db.SetOperatorExpiry(opID, expiryMs); err != nil {
+				b.send(userID, "❌ Ошибка сохранения: "+err.Error())
+				delete(b.userState, userID)
+				return
+			}
+			b.send(userID, fmt.Sprintf("⏳ Устанавливаю срок и обновляю клиентов..."))
+			count, err := panel.UpdateManagerClientsExpiry(opID, expiryMs)
+			if err != nil {
+				b.send(userID, fmt.Sprintf("⚠️ Срок установлен, но ошибка обновления в панели: %v", err))
+			} else {
+				b.send(userID, fmt.Sprintf("✅ Подписка менеджера %d установлена до %s\n👥 Обновлено клиентов: %d",
+					opID, t.Format("02.01.2006"), count))
+			}
+			delete(b.userState, userID)
+		}
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
@@ -210,34 +211,34 @@ func (b *Bot) showDeleteConfirm(userID int64, clientID int64, editMsgID int) {
 }
 
 func (b *Bot) showOpsManage(userID int64) {
-	operators, err := db.GetAllOperators()
+	operators, err := db.GetAllOperatorsWithExpiry()
 	if err != nil {
 		b.send(userID, "❌ Ошибка получения списка операторов")
 		return
 	}
 
-	text := "👤 Операторы:\n"
+	text := "👤 Менеджеры:\n"
 	if len(operators) == 0 {
 		text += "_список пуст_"
 	} else {
 		text += fmt.Sprintf("Всего: %d\n\n", len(operators))
-		for _, id := range operators {
-			text += fmt.Sprintf("• %d\n", id)
+		for _, op := range operators {
+			text += fmt.Sprintf("• %d — %s\n", op.UserID, formatExpiry(op.ExpiresAt))
 		}
 	}
 
 	var buttons [][]tgbotapi.InlineKeyboardButton
-	for _, opID := range operators {
+	for _, op := range operators {
 		buttons = append(buttons, []tgbotapi.InlineKeyboardButton{
 			tgbotapi.NewInlineKeyboardButtonData(
-				"❌ "+fmt.Sprintf("%d", opID),
-				fmt.Sprintf("ops_remove:%d", opID),
+				fmt.Sprintf("👤 %d (%s)", op.UserID, formatExpiry(op.ExpiresAt)),
+				fmt.Sprintf("op_detail:%d", op.UserID),
 			),
 		})
 	}
 	buttons = append(buttons,
 		[]tgbotapi.InlineKeyboardButton{
-			tgbotapi.NewInlineKeyboardButtonData("➕ Добавить оператора", "ops_add"),
+			tgbotapi.NewInlineKeyboardButtonData("➕ Добавить менеджера", "ops_add"),
 		},
 		[]tgbotapi.InlineKeyboardButton{
 			tgbotapi.NewInlineKeyboardButtonData("⬅️ Назад", "back_to_menu"),
@@ -248,6 +249,59 @@ func (b *Bot) showOpsManage(userID int64) {
 	msg.ParseMode = "Markdown"
 	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(buttons...)
 	b.api.Send(msg)
+}
+
+func (b *Bot) showOpDetail(userID int64, opID int64, editMsgID int) {
+	expiry := db.GetOperatorExpiry(opID)
+	clientCount := db.GetClientCountByOwner(opID)
+
+	var expiryLine string
+	if expiry == 0 {
+		expiryLine = "бессрочно"
+	} else {
+		t := time.UnixMilli(expiry)
+		days := int(time.Until(t).Hours() / 24)
+		if days < 0 {
+			expiryLine = fmt.Sprintf("❗ истёк %s", t.Format("02.01.2006"))
+		} else {
+			expiryLine = fmt.Sprintf("до %s (%d дн.)", t.Format("02.01.2006"), days)
+		}
+	}
+
+	text := fmt.Sprintf(
+		"👤 Менеджер <b>%d</b>\n📅 Подписка: %s\n👥 Клиентов: %d/6",
+		opID, expiryLine, clientCount,
+	)
+
+	buttons := tgbotapi.NewInlineKeyboardMarkup(
+		[]tgbotapi.InlineKeyboardButton{
+			tgbotapi.NewInlineKeyboardButtonData("➕ +1 месяц", fmt.Sprintf("op_extend:%d:1", opID)),
+			tgbotapi.NewInlineKeyboardButtonData("➕ +3 месяца", fmt.Sprintf("op_extend:%d:3", opID)),
+			tgbotapi.NewInlineKeyboardButtonData("➕ +6 месяцев", fmt.Sprintf("op_extend:%d:6", opID)),
+		},
+		[]tgbotapi.InlineKeyboardButton{
+			tgbotapi.NewInlineKeyboardButtonData("📅 Установить дату", fmt.Sprintf("op_set_expiry:%d", opID)),
+		},
+		[]tgbotapi.InlineKeyboardButton{
+			tgbotapi.NewInlineKeyboardButtonData("❌ Удалить менеджера", fmt.Sprintf("ops_remove:%d", opID)),
+		},
+		[]tgbotapi.InlineKeyboardButton{
+			tgbotapi.NewInlineKeyboardButtonData("⬅️ К списку", "ops_manage"),
+		},
+	)
+	b.sendOrEdit(userID, editMsgID, text, "HTML", buttons)
+}
+
+// formatExpiry returns a short expiry label for the operators list.
+func formatExpiry(expiryMs int64) string {
+	if expiryMs == 0 {
+		return "бессрочно"
+	}
+	t := time.UnixMilli(expiryMs)
+	if time.Now().After(t) {
+		return "❗ истёк"
+	}
+	return t.Format("02.01.2006")
 }
 
 func (b *Bot) showAddOp(userID int64) {

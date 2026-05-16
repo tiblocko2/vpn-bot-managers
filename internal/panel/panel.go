@@ -118,13 +118,13 @@ func postRequest(method string, payload interface{}) error {
 	return nil
 }
 
-func addClientToInbound(inboundID int64, email, comment, subID, uuid string) error {
+func addClientToInbound(inboundID int64, email, comment, subID, uuid string, expiryMs int64) error {
 	settingsJSON, _ := json.Marshal(map[string]interface{}{
 		"clients": []map[string]interface{}{
 			{
 				"id": uuid, "alterId": 0, "email": email,
 				"comment": comment, "subId": subID,
-				"enable": true, "totalGB": 0, "expiryTime": 0,
+				"enable": true, "totalGB": 0, "expiryTime": expiryMs,
 				"flow": "", "tgId": "", "limitIp": 0,
 			},
 		},
@@ -133,6 +133,26 @@ func addClientToInbound(inboundID int64, email, comment, subID, uuid string) err
 		"id":       inboundID,
 		"settings": string(settingsJSON),
 	})
+}
+
+func updateClientInInbound(inboundID int64, email, comment, subID, uuid string, expiryMs int64) error {
+	settingsJSON, _ := json.Marshal(map[string]interface{}{
+		"clients": []map[string]interface{}{
+			{
+				"id": uuid, "alterId": 0, "email": email,
+				"comment": comment, "subId": subID,
+				"enable": true, "totalGB": 0, "expiryTime": expiryMs,
+				"flow": "", "tgId": "", "limitIp": 0,
+			},
+		},
+	})
+	return postRequest(
+		fmt.Sprintf("/panel/api/inbounds/updateClient/%s", uuid),
+		map[string]interface{}{
+			"id":       inboundID,
+			"settings": string(settingsJSON),
+		},
+	)
 }
 
 func deleteClientByEmail(inboundID int64, email string) error {
@@ -158,9 +178,14 @@ func AddClient(name string, ownerID int64) (string, error) {
 	uuid := generateUUID()
 	emails := make(map[int64]string, len(inbounds))
 
+	var expiryMs int64
+	if ownerID != 0 {
+		expiryMs = db.GetOperatorExpiry(ownerID)
+	}
+
 	for i, ib := range inbounds {
 		email := randomEmail()
-		if err := addClientToInbound(ib.ID, email, name, subscription, uuid); err != nil {
+		if err := addClientToInbound(ib.ID, email, name, subscription, uuid, expiryMs); err != nil {
 			return "", fmt.Errorf("ошибка добавления в inbound %d (%s): %v", ib.ID, ib.Label, err)
 		}
 		emails[ib.ID] = email
@@ -239,8 +264,13 @@ func AddExistingClientToInbound(clientID int64, targetInboundID int64) error {
 		db.SetClientUUID(clientID, uuid)
 	}
 
+	var expiryMs int64
+	if ownerID, _ := db.ClientOwner(clientID); ownerID != 0 {
+		expiryMs = db.GetOperatorExpiry(ownerID)
+	}
+
 	email := randomEmail()
-	if err := addClientToInbound(targetInboundID, email, details.Comment, details.Subscription, uuid); err != nil {
+	if err := addClientToInbound(targetInboundID, email, details.Comment, details.Subscription, uuid, expiryMs); err != nil {
 		return fmt.Errorf("ошибка добавления в inbound %d: %v", targetInboundID, err)
 	}
 	return db.AddClientEmail(clientID, targetInboundID, email)
@@ -397,6 +427,36 @@ func ImportClientsFromPanel(inboundIDs []int64) (ImportResult, error) {
 		res.Imported++
 	}
 	return res, nil
+}
+
+// UpdateManagerClientsExpiry updates expiryTime in 3X-UI for all clients of a manager.
+// Returns the count of clients processed.
+func UpdateManagerClientsExpiry(managerID int64, expiryMs int64) (int, error) {
+	clients, err := db.GetClientsByOwner(managerID)
+	if err != nil {
+		return 0, err
+	}
+	if len(clients) == 0 {
+		return 0, nil
+	}
+	if err := Login(); err != nil {
+		return 0, fmt.Errorf("ошибка авторизации: %v", err)
+	}
+	count := 0
+	for _, c := range clients {
+		first := true
+		for ibID, email := range c.Emails {
+			if !first {
+				time.Sleep(200 * time.Millisecond)
+			}
+			if err := updateClientInInbound(ibID, email, c.Comment, c.Subscription, c.UUID, expiryMs); err != nil {
+				log.Printf("⚠️ Ошибка обновления expiry клиента '%s' в inbound %d: %v", c.Comment, ibID, err)
+			}
+			first = false
+		}
+		count++
+	}
+	return count, nil
 }
 
 // --- helpers ---

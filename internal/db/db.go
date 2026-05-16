@@ -19,6 +19,11 @@ type ClientRecord struct {
 	Comment string
 }
 
+type OperatorRecord struct {
+	UserID    int64
+	ExpiresAt int64 // Unix milliseconds; 0 = no expiry
+}
+
 type ClientDetails struct {
 	ID           int64
 	Comment      string
@@ -39,10 +44,14 @@ func Init() {
 	conn.Exec("PRAGMA foreign_keys=ON")
 	conn.SetMaxOpenConns(1)
 
-	_, err = conn.Exec(`CREATE TABLE IF NOT EXISTS operators (user_id INTEGER PRIMARY KEY)`)
+	_, err = conn.Exec(`CREATE TABLE IF NOT EXISTS operators (
+		user_id INTEGER PRIMARY KEY,
+		expires_at INTEGER NOT NULL DEFAULT 0
+	)`)
 	if err != nil {
 		panic(err)
 	}
+	conn.Exec(`ALTER TABLE operators ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0`)
 
 	// Legacy columns email_vless/email_vmess kept for backward compat (always '').
 	_, err = conn.Exec(`CREATE TABLE IF NOT EXISTS clients (
@@ -155,6 +164,64 @@ func GetAllOperators() ([]int64, error) {
 		ops = append(ops, id)
 	}
 	return ops, nil
+}
+
+func GetAllOperatorsWithExpiry() ([]OperatorRecord, error) {
+	rows, err := conn.Query("SELECT user_id, expires_at FROM operators")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ops []OperatorRecord
+	for rows.Next() {
+		var r OperatorRecord
+		if err := rows.Scan(&r.UserID, &r.ExpiresAt); err != nil {
+			return nil, err
+		}
+		ops = append(ops, r)
+	}
+	return ops, nil
+}
+
+func GetOperatorExpiry(userID int64) int64 {
+	var expiresAt int64
+	conn.QueryRow("SELECT expires_at FROM operators WHERE user_id = ?", userID).Scan(&expiresAt)
+	return expiresAt
+}
+
+func SetOperatorExpiry(userID int64, expiryMs int64) error {
+	_, err := conn.Exec("UPDATE operators SET expires_at = ? WHERE user_id = ?", expiryMs, userID)
+	return err
+}
+
+// GetClientsByOwner returns all clients for a given manager with their inbound emails.
+func GetClientsByOwner(ownerID int64) ([]ClientDetails, error) {
+	rows, err := conn.Query("SELECT id, comment, subscription, uuid FROM clients WHERE owner_id = ?", ownerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var clients []ClientDetails
+	for rows.Next() {
+		var d ClientDetails
+		rows.Scan(&d.ID, &d.Comment, &d.Subscription, &d.UUID)
+		clients = append(clients, d)
+	}
+	for i := range clients {
+		eRows, err := conn.Query("SELECT inbound_id, email FROM client_emails WHERE client_id = ?", clients[i].ID)
+		if err != nil {
+			continue
+		}
+		clients[i].Emails = make(map[int64]string)
+		for eRows.Next() {
+			var ibID int64
+			var email string
+			eRows.Scan(&ibID, &email)
+			clients[i].Emails[ibID] = email
+		}
+		eRows.Close()
+	}
+	return clients, nil
 }
 
 func ClientExists(comment string) bool {
