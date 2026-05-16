@@ -1,16 +1,21 @@
-# VPN Bot
+# VPN Bot — Multi-Manager Edition
 
-Telegram-бот для управления клиентами 3X-UI (VLESS + VMess).
+Telegram-бот для управления VPN-клиентами 3X-UI с поддержкой менеджеров.
+
+## Возможности
+
+- **Суперпользователь (admin)**: полный доступ — управление inbound, импорт из 3X-UI, смена домена подписок, управление менеджерами и их сроками
+- **Менеджеры**: каждый менеджер управляет только своими клиентами (до 6 штук), добавляет их в inbound и получает ссылки. Срок подписки контролирует суперпользователь — при установке срока все клиенты менеджера обновляются в 3X-UI
 
 ## Установка на сервере Ubuntu/Debian
 
 ```bash
-git clone https://github.com/tiblocko2/vpn-bot.git
-cd vpn-bot
+git clone https://github.com/tiblocko2/vpn-bot-managers.git
+cd vpn-bot-managers
 sudo bash install.sh
 ```
 
-Скрипт интерактивно спросит все необходимые параметры и установит бота как systemd-сервис.  
+Скрипт интерактивно спросит все необходимые параметры и установит бота как systemd-сервис.
 Бинарный файл автоматически загружается из последнего GitHub Release.
 
 ### Управление сервисом
@@ -24,10 +29,9 @@ systemctl restart vpn-bot     # перезапуск
 ## Обновление
 
 ```bash
-cd /opt/vpn-bot
 ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
-curl -fsSL https://github.com/tiblocko2/vpn-bot/releases/latest/download/vpn-bot-linux-$ARCH -o vpn-bot
-chmod +x vpn-bot
+curl -fsSL https://github.com/tiblocko2/vpn-bot-managers/releases/latest/download/vpn-bot-linux-$ARCH -o /opt/vpn-bot/vpn-bot
+chmod +x /opt/vpn-bot/vpn-bot
 systemctl restart vpn-bot
 ```
 
@@ -42,12 +46,26 @@ systemctl restart vpn-bot
 | `panel_url` | URL панели 3X-UI без слеша в конце |
 | `panel_username` / `panel_password` | Логин и пароль от панели |
 | `sub_domain` | Базовый URL для ссылок на подписки |
-| `vless_inbound_id` | ID VLESS inbound в 3X-UI |
-| `vmess_inbound_id` | ID VMess inbound в 3X-UI |
 | `proxy_url` | Прокси для Telegram API (необязательно) |
 | `db_path` | Путь к SQLite-базе данных |
 
-Домен подписок (`sub_domain`) можно менять **прямо через бота** — кнопка "🌐 Сменить домен подписок" в меню суперпользователя.
+Inbound добавляются прямо через бота (кнопка "⚙️ Управление inbound" в меню суперпользователя).
+
+## Роли
+
+### Суперпользователь
+- Добавление клиентов (без лимита)
+- Список всех клиентов
+- Импорт из 3X-UI
+- Управление inbound
+- Смена домена подписок
+- Управление менеджерами: добавление, удаление, установка срока подписки
+
+### Менеджер
+- Добавление клиентов (до 6 штук)
+- Просмотр и управление только своими клиентами
+- Подключение клиентов к inbound, получение ссылок на подписки, удаление
+- Клиенты создаются с `expiryTime` из срока подписки менеджера
 
 ## Структура проекта
 

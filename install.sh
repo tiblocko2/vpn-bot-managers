@@ -5,7 +5,7 @@ set -e
 
 INSTALL_DIR="/opt/vpn-bot"
 SERVICE_NAME="vpn-bot"
-REPO="tiblocko2/vpn-bot"
+REPO="tiblocko2/vpn-bot-managers"
 BINARY="vpn-bot"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
