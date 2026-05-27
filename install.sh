@@ -61,22 +61,62 @@ read -s -p "Пароль панели: " PANEL_PASSWORD
 echo ""
 [ -z "$PANEL_PASSWORD" ] && error "Пароль не может быть пустым"
 
+echo ""
+echo "API-токен панели (необязательно)."
+echo "Позволяет работать без логина/пароля. Создаётся в настройках 3X-UI → API."
+read -p "API Token 3X-UI (оставьте пустым, если не используете): " PANEL_API_TOKEN
+
 read -p "Домен для подписок (например: https://srv.example.com:2096/sub): " SUB_DOMAIN
 [ -z "$SUB_DOMAIN" ] && error "Домен подписок не может быть пустым"
 
-read -p "ID VLESS inbound [по умолчанию: 1]: " VLESS_ID
-VLESS_ID="${VLESS_ID:-1}"
-
-read -p "ID VMess inbound [по умолчанию: 5]: " VMESS_ID
-VMESS_ID="${VMESS_ID:-5}"
-
 read -p "Прокси URL (оставьте пустым если не нужен): " PROXY_URL
+
+# --- Inbound configuration ---
+
+echo ""
+info "Настройка inbound-ов 3X-UI."
+echo "Добавьте все inbound, которые должны получать клиентов."
+echo "Для каждого введите ID (число) и метку (например: VLESS, VMess, Reality)."
+echo "Нажмите Enter с пустым ID, чтобы закончить ввод."
+echo ""
+
+INBOUNDS_JSON=""
+INBOUND_COUNT=0
+
+while true; do
+    read -p "ID inbound (или Enter для завершения): " IB_ID
+    [ -z "$IB_ID" ] && break
+    [[ ! "$IB_ID" =~ ^[0-9]+$ ]] && warn "ID должен быть числом. Попробуйте снова." && continue
+
+    read -p "Метка для inbound $IB_ID (например: VLESS): " IB_LABEL
+    [ -z "$IB_LABEL" ] && IB_LABEL="Inbound $IB_ID"
+
+    if [ -n "$INBOUNDS_JSON" ]; then
+        INBOUNDS_JSON="$INBOUNDS_JSON,"
+    fi
+    INBOUNDS_JSON="$INBOUNDS_JSON
+    {\"id\": $IB_ID, \"label\": \"$IB_LABEL\"}"
+    INBOUND_COUNT=$((INBOUND_COUNT + 1))
+    info "  ✅ Добавлен: [$IB_ID] $IB_LABEL"
+done
+
+if [ "$INBOUND_COUNT" -eq 0 ]; then
+    warn "⚠️ Inbound-ы не добавлены. Можно добавить через бота позже."
+    INBOUNDS_JSON=""
+fi
 
 DB_PATH="$INSTALL_DIR/db.sqlite"
 
 # --- Write config ---
 
 info "\n📝 Создание $INSTALL_DIR/config.json..."
+
+# Build optional api token field
+API_TOKEN_FIELD=""
+if [ -n "$PANEL_API_TOKEN" ]; then
+    API_TOKEN_FIELD="\"panel_api_token\": \"$PANEL_API_TOKEN\","
+fi
+
 cat > "$INSTALL_DIR/config.json" <<EOF
 {
   "bot_token": "$BOT_TOKEN",
@@ -84,10 +124,11 @@ cat > "$INSTALL_DIR/config.json" <<EOF
   "panel_url": "$PANEL_URL",
   "panel_username": "$PANEL_USERNAME",
   "panel_password": "$PANEL_PASSWORD",
+  $API_TOKEN_FIELD
   "sub_domain": "$SUB_DOMAIN",
   "proxy_url": "$PROXY_URL",
-  "vless_inbound_id": $VLESS_ID,
-  "vmess_inbound_id": $VMESS_ID,
+  "inbounds": [$INBOUNDS_JSON
+  ],
   "db_path": "$DB_PATH"
 }
 EOF
@@ -132,4 +173,4 @@ echo "  Статус:  systemctl status $SERVICE_NAME"
 echo "  Логи:    journalctl -u $SERVICE_NAME -f"
 echo "  Конфиг:  $INSTALL_DIR/config.json"
 echo ""
-warn "Домен подписок можно сменить прямо через бота (кнопка в меню суперпользователя)."
+warn "Домен подписок и inbound-ы можно изменить прямо через бота (меню суперпользователя)."

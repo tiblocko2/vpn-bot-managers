@@ -16,6 +16,7 @@ type Config struct {
 	PanelURL      string          `json:"panel_url"`
 	PanelUsername string          `json:"panel_username"`
 	PanelPassword string          `json:"panel_password"`
+	PanelAPIToken string          `json:"panel_api_token,omitempty"`
 	SubDomain     string          `json:"sub_domain"`
 	ProxyURL      string          `json:"proxy_url"`
 	Inbounds      []InboundConfig `json:"inbounds"`
