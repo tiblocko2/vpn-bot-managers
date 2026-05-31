@@ -70,6 +70,11 @@ func (b *Bot) handleCallback(update *tgbotapi.Update) {
 			b.showClientDetail(userID, clientID, 0)
 		}
 
+	case strings.HasPrefix(data, "sub_connect:"):
+		ack("")
+		id, _ := strconv.ParseInt(strings.TrimPrefix(data, "sub_connect:"), 10, 64)
+		b.showSubConnect(userID, id, msgID)
+
 	// --- delete flow ---
 
 	case strings.HasPrefix(data, "del_confirm:"):

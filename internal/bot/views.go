@@ -3,6 +3,7 @@ package bot
 import (
 	"fmt"
 	"math"
+	"net/url"
 	"strings"
 	"time"
 
@@ -173,6 +174,12 @@ func (b *Bot) showClientDetail(userID int64, clientID int64, editMsgID int) {
 				tgbotapi.NewInlineKeyboardButtonData(label, fmt.Sprintf("client_ib_add:%d:%d", clientID, ib.ID)),
 			})
 		}
+	}
+
+	if config.Cfg.SubDomain != "" && details.Subscription != "" {
+		buttons = append(buttons, []tgbotapi.InlineKeyboardButton{
+			tgbotapi.NewInlineKeyboardButtonData("📲 Подключить в приложении", fmt.Sprintf("sub_connect:%d", clientID)),
+		})
 	}
 
 	buttons = append(buttons,
@@ -508,4 +515,49 @@ func escapeHTML(s string) string {
 	s = strings.ReplaceAll(s, "<", "&lt;")
 	s = strings.ReplaceAll(s, ">", "&gt;")
 	return s
+}
+
+// subConnectMarkup builds an inline keyboard with deep-link buttons for popular VPN apps.
+// subURL is the full subscription URL (e.g. https://example.com/sub/abc123).
+func subConnectMarkup(subURL string) tgbotapi.InlineKeyboardMarkup {
+	enc := url.QueryEscape(subURL)
+	return tgbotapi.NewInlineKeyboardMarkup(
+		[]tgbotapi.InlineKeyboardButton{
+			tgbotapi.NewInlineKeyboardButtonURL("Happ", "happ://add/sub?url="+enc),
+			tgbotapi.NewInlineKeyboardButtonURL("Karing", "karing://install-sub?url="+enc),
+		},
+		[]tgbotapi.InlineKeyboardButton{
+			tgbotapi.NewInlineKeyboardButtonURL("Hiddify", "hiddify://install-sub?url="+enc),
+			tgbotapi.NewInlineKeyboardButtonURL("v2rayNG", "v2rayng://install-sub?url="+enc),
+		},
+	)
+}
+
+// showSubConnect renders app deep-link buttons for a client's subscription.
+func (b *Bot) showSubConnect(userID int64, clientID int64, editMsgID int) {
+	if userID != config.Cfg.SuperUserID {
+		owner, err := db.ClientOwner(clientID)
+		if err != nil || owner != userID {
+			b.send(userID, "❌ Клиент не найден")
+			return
+		}
+	}
+	details, err := db.GetClientDetails(clientID)
+	if err != nil {
+		b.send(userID, "❌ Клиент не найден")
+		return
+	}
+	if config.Cfg.SubDomain == "" || details.Subscription == "" {
+		b.send(userID, "❌ Ссылка на подписку недоступна")
+		return
+	}
+
+	subURL := fmt.Sprintf("%s/%s", config.Cfg.SubDomain, details.Subscription)
+	text := fmt.Sprintf("📲 <b>%s</b>\n\nВыберите приложение для подключения подписки:", escapeHTML(details.Comment))
+
+	kb := subConnectMarkup(subURL)
+	kb.InlineKeyboard = append(kb.InlineKeyboard, []tgbotapi.InlineKeyboardButton{
+		tgbotapi.NewInlineKeyboardButtonData("⬅️ Назад", fmt.Sprintf("client_detail:%d", clientID)),
+	})
+	b.sendOrEdit(userID, editMsgID, text, "HTML", kb)
 }

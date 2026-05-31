@@ -119,6 +119,9 @@ func getRequest(method string) ([]byte, error) {
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode == 401 {
+		log.Printf("⚠️ 401 на %s | Authorization: %q | тело: %q", method, req.Header.Get("Authorization"), string(body))
+	}
 	if len(body) == 0 {
 		return nil, fmt.Errorf("пустой ответ от панели (status: %d, метод: %s)", resp.StatusCode, method)
 	}
