@@ -134,12 +134,11 @@ func (b *Bot) handleTextState(userID int64, text string) {
 			log.Printf("Ошибка добавления клиента: %v", err)
 		} else {
 			msg := tgbotapi.NewMessage(userID, fmt.Sprintf(
-				"✅ Пользователь '%s' успешно добавлен!\n\n🔗 Ссылка на подписку:\n<code>%s</code>\n\n📲 Открыть в приложении:", name, link,
+				"✅ Пользователь '%s' успешно добавлен!\n\n🔗 Ссылка на подписку:\n<code>%s</code>\n\n%s",
+				name, link, subConnectText(link),
 			))
 			msg.ParseMode = "HTML"
 			msg.DisableWebPagePreview = true
-			kb := subConnectMarkup(link)
-			msg.ReplyMarkup = kb
 			b.api.Send(msg)
 		}
 		delete(b.userState, userID)
